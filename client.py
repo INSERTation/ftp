@@ -20,6 +20,46 @@ def authenticate(client_socket):
     response = send_command(client_socket, f"PASS {password}")
     print(response)
     return "230" in response  # Assuming 230 response code for successful login
+def parse_pasv_response(response):
+    """
+    Parses the PASV response from the FTP server.
+    Extracts and returns the data channel's IP address and port.
+    """
+    # Example PASV response: "227 Entering Passive Mode (192,168,1,2,197,143)."
+    prefix, values = response.split('(')
+    values = values.strip(').')
+    parts = values.split(',')
+    
+    # Reconstruct the IP address and calculate the port
+    ip_address = '.'.join(parts[:4])
+    port = (int(parts[4]) * 256) + int(parts[5])
+    return ip_address, port
+def send_command(client_socket, command):
+    """
+    Sends a command to the server and waits for a short response.
+    """
+    client_socket.sendall(command.encode())
+    response = client_socket.recv(1024).decode()
+    return response
+
+def setup_data_channel(client_socket):
+    """
+    Requests passive mode with PASV, parses the server's response,
+    and establishes a connection to the data channel.
+    """
+    # Request passive mode
+    pasv_response = send_command(client_socket, "PASV")
+    print(pasv_response)
+    
+    # Parse the response to get IP and port
+    ip_address, port = parse_pasv_response(pasv_response)
+    
+    # Connect to the data channel
+    data_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    data_socket.connect((ip_address, port))
+    
+    return data_socket
+
 
 def main():
     # Get server IP and Port from user input
@@ -37,6 +77,9 @@ def main():
             return
         else:
             print('Authentication successful.')
+        
+        # Setup the data channel
+        data_channel_socket = setup_data_channel(clientSocket)
 
         # Command loop
         while True:
@@ -88,6 +131,8 @@ def main():
                 # Send any other command and display the response
                 response = send_command(clientSocket, command)
                 print(response)
+
+    data_channel_socket.close()
 
 if __name__ == "__main__":
     main()

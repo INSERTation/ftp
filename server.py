@@ -18,11 +18,36 @@ transfer_type = "stream"  # or "block" or "compressed"
 # Placeholder for the main directory to prevent escaping to the server filesystem
 BASE_DIR = os.path.abspath("main")
 os.chdir(BASE_DIR)
+def handle_pasv_command(connection):
+    """
+    Handles the PASV command to open a new socket for the data channel.
+    """
+    data_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    data_socket.bind(('', 0))  # Bind to an available port chosen by the OS
+    data_socket.listen(1)
+    
+    # Get the socket's assigned IP address and port number
+    ip, port = data_socket.getsockname()
+    ip_address = ','.join(ip.split('.'))
+    p1, p2 = port // 256, port % 256
+    
+    # Send the PASV response to the client
+    pasv_message = f"227 Entering Passive Mode ({ip_address},{p1},{p2})."
+    connection.sendall(pasv_message.encode())
+    
+    # Wait for a connection on the data socket
+    data_conn, _ = data_socket.accept()
+    
+    return data_conn
 
 def handle_client_connection(connection):
     """
     Handles each client connection in a separate thread.
     """
+    # Send the welcome banner message to the client
+    welcome_message = "Welcome to NSCOM01 FTP server"
+    connection.sendall(welcome_message.encode())
+    
     authenticated = False
     username = None
     
@@ -79,8 +104,9 @@ def handle_client_connection(connection):
                 except Exception as e:
                     response = f"550 Remove directory operation failed. {e}"
             elif command == 'PASV':
-                # This is a simplified version, actual PASV command handling requires opening a new port for data transfer
-                response = "227 Entering Passive Mode (h1,h2,h3,h4,p1,p2)."
+                # Handle PASV command
+                data_conn = handle_pasv_command(connection)
+                continue 
             elif command == 'LIST':
                 try:
                     listing = os.listdir('.')
