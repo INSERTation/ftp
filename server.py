@@ -68,8 +68,21 @@ def handle_client_connection(connection):
                     response = f"550 Failed to change directory. {e}"
             elif command == 'MKD':
                 try:
-                    os.mkdir(args[0])
+                    if not args:
+                        raise ValueError("Directory name not provided")
+
+                    dirname = args[0]
+                    if not dirname:
+                        raise ValueError("Invalid directory name")
+                    if '..' in dirname:
+                        raise ValueError("Invalid directory name")
+
+                    os.mkdir(dirname)
                     response = "257 Directory created."
+                except ValueError as ve:
+                    response = f"501 {ve}"
+                except FileExistsError:
+                    response = f"550 Directory already exists."
                 except Exception as e:
                     response = f"550 Create directory operation failed. {e}"
             elif command == 'RMD':
@@ -87,20 +100,32 @@ def handle_client_connection(connection):
                     response = "\n".join(listing)
                 except Exception as e:
                     response = f"550 Failed to list directory. {e}"
-            elif command == 'RETR':            
-                filename = ' '.join(args)  # Assuming filename is the rest of the command
-                filepath = os.path.join(os.getcwd(), filename)
-                if os.path.exists(filepath):
-                    connection.sendall(b'1')  # Signal client that file transfer will start
-                    with open(filepath, 'rb') as file:
-                        data = file.read(1024)
-                        while data:
-                            connection.sendall(data)
+            elif command == 'RETR':       
+                try:     
+                    filename = ' '.join(args)  # Assuming filename is the rest of the command
+                    
+                    if '..' in filename:
+                        raise ValueError("Invalid filename")
+
+                    filepath = os.path.join(os.getcwd(), filename)
+
+                    if os.path.exists(filepath):
+                        connection.sendall(b'1')  # Signal client that file transfer will start
+                        with open(filepath, 'rb') as file:
                             data = file.read(1024)
-                    print(f'{filename} sent successfully.')
-                else:
-                    connection.sendall(b'0')  # Signal client that file transfer will not start
-                    print(f'{filename} does not exist.')
+                            while data:
+                                connection.sendall(data)
+                                data = file.read(1024)
+
+                        print(f'{filename} sent successfully.')
+                        response = "226 File sent successfully"
+                    else:
+                        connection.sendall(b'0')  # Signal client that file transfer will not start
+                        print(f'{filename} does not exist.')
+                        response = "550 File not found."
+                except Exception as e:
+                    response = f"550 Retrieve operation failed. {e}"
+                    
             elif command == 'DELE':
                 try:
                     os.remove(args[0])
@@ -108,15 +133,25 @@ def handle_client_connection(connection):
                 except Exception as e:
                     response = f"550 Delete operation failed. {e}"
             elif command == 'STOR':
-                filename = ' '.join(args)
-                connection.sendall(b'1')  # Signal client to start sending the file
-                with open(filename, 'wb') as file:
-                    while True:
-                        data = connection.recv(1024)
-                        if not data:
-                            break  # File transfer done
-                        file.write(data)
-                print(f'{filename} received successfully.')
+                try:
+                    filename = ' '.join(args)
+                    if '..' in filename:
+                        raise ValueError("Invalid filename")
+                    connection.sendall(b'1')  # Signal client to start sending the file
+
+                    with open(filename, 'wb') as file:
+                        while True:
+                            data = connection.recv(1024)
+                            if not data:
+                                break  # File transfer done
+                            file.write(data)
+                    print(f'{filename} received successfully.')
+                    response = "226 File transferred successfully"
+                except ValueError as ve:
+                    response = f"501 {ve}"
+                except Exception as e:
+                    response = f"550 Store operation faliled {e}"
+
             elif command == 'HELP':
                 response = ("214-The following commands are recognized and their explanations:\n"
                             "USER <username> - Log in as the user with the specified username.\n"
