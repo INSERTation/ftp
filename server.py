@@ -87,9 +87,20 @@ def handle_client_connection(connection):
                     response = "\n".join(listing)
                 except Exception as e:
                     response = f"550 Failed to list directory. {e}"
-            elif command == 'RETR':
-                # Implement file sending
-                pass
+            elif command == 'RETR':            
+                filename = ' '.join(args)  # Assuming filename is the rest of the command
+                filepath = os.path.join(os.getcwd(), filename)
+                if os.path.exists(filepath):
+                    connection.sendall(b'1')  # Signal client that file transfer will start
+                    with open(filepath, 'rb') as file:
+                        data = file.read(1024)
+                        while data:
+                            connection.sendall(data)
+                            data = file.read(1024)
+                    print(f'{filename} sent successfully.')
+                else:
+                    connection.sendall(b'0')  # Signal client that file transfer will not start
+                    print(f'{filename} does not exist.')
             elif command == 'DELE':
                 try:
                     os.remove(args[0])
@@ -97,10 +108,33 @@ def handle_client_connection(connection):
                 except Exception as e:
                     response = f"550 Delete operation failed. {e}"
             elif command == 'STOR':
-                # Implement file receiving
-                pass
+                filename = ' '.join(args)
+                connection.sendall(b'1')  # Signal client to start sending the file
+                with open(filename, 'wb') as file:
+                    while True:
+                        data = connection.recv(1024)
+                        if not data:
+                            break  # File transfer done
+                        file.write(data)
+                print(f'{filename} received successfully.')
             elif command == 'HELP':
-                response = "214-The following commands are recognized.\nUSER PASS PWD CWD CDUP MKD RMD PASV LIST RETR DELE STOR HELP QUIT"
+                response = ("214-The following commands are recognized and their explanations:\n"
+                            "USER <username> - Log in as the user with the specified username.\n"
+                            "PASS <password> - Authenticate with the specified password.\n"
+                            "PWD - Print the current working directory on the server.\n"
+                            "CWD <directory> - Change the current working directory.\n"
+                            "CDUP - Change to the parent of the current working directory.\n"
+                            "MKD <directory> - Make a new directory on the server.\n"
+                            "RMD <directory> - Remove a directory from the server.\n"
+                            "PASV - Enter passive transfer mode.\n"
+                            "LIST - List the files in the current directory.\n"
+                            "RETR <filename> - Retrieve a file from the server.\n"
+                            "STOR <filename> - Store a file on the server.\n"
+                            "DELE <filename> - Delete a file from the server.\n"
+                            "HELP - Show this help message.\n"
+                            "QUIT - Log out and close the connection.\n"
+                            "Note: Commands are not case-sensitive.")
+
             elif command == 'QUIT':
                 response = "221 Goodbye."
                 break
