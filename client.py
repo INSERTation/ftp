@@ -61,7 +61,7 @@ def setup_data_channel(client_socket):
     # Connect to the data channel
     data_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     data_socket.connect((ip_address, port))
-    
+    print(port)
     return data_socket
 
 def execute_stor_command(client_socket, data_channel_socket, command):
@@ -102,6 +102,7 @@ def execute_retr_command(client_socket, data_channel_socket, command):
             print(server_response)
     except Exception as e:
         print(f'Error in RETR command: {e}')
+
 
 def main():
     # Get server IP and Port from user input

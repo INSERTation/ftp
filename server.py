@@ -42,6 +42,97 @@ def remove_record_markers(data):
     records = [record for record in records if record.strip()]
     return b'\n'.join(records)
 
+def receive_stream(file, data_conn):
+    try:
+        while True:
+            data = data_conn.recv(1024)
+            if not data:
+                break
+            file.write(data)
+        return True
+    except Exception as e:
+        print(f"Error receiving data: {e}")
+        return False
+
+def receive_block(file, data_conn):
+    try:
+        block_size = 1024  # Define your block size
+        while True:
+            data = data_conn.recv(block_size)
+            if not data:
+                break
+            file.write(data)
+            data_conn.sendall(b'1')  # Acknowledge block received
+        return True
+    except Exception as e:
+        print(f"Error receiving block: {e}")
+        return False
+
+def receive_compressed(file, data_conn):
+    try:
+        import zlib
+        decompressor = zlib.decompressobj()
+        while True:
+            compressed_data = data_conn.recv(1024)
+            if not compressed_data:
+                break
+            data = decompressor.decompress(compressed_data)
+            if data:
+                file.write(data)
+        file.write(decompressor.flush())
+        return True
+    except Exception as e:
+        print(f"Error receiving compressed data: {e}")
+        return False
+
+
+
+def handle_stor(filename, pasv_socket, client_socket):
+    try:
+        data_conn, _ = pasv_socket.accept()  # Accept the data connection
+        # Check if transfer settings are all set
+        if not all([transfer_type, transfer_mode, data_structure]):
+            data_conn.close()
+            client_socket.sendall(b'0')
+            return "503 Bad sequence of commands. Set TYPE, MODE, and STRU before transfer."
+
+        client_socket.sendall(b'1')  # Signal client that file transfer will start
+
+        # Open the file in write-binary mode to ensure correct handling of binary data
+        with open(filename, 'wb') as file:
+            if transfer_type == "stream":
+                if transfer_mode == "binary":
+                    success = receive_stream(file, data_conn)
+                else:
+                    success = False  # Unsupported transfer mode
+            elif transfer_type == "block":
+                if transfer_mode == "binary":
+                    success = receive_block(file, data_conn)
+                else:
+                    success = False  # Unsupported transfer mode
+            elif transfer_type == "compressed":
+                if transfer_mode == "binary":
+                    success = receive_compressed(file, data_conn)
+                else:
+                    success = False  # Unsupported transfer mode
+            else:
+                success = False  # Unsupported transfer type
+
+            # Check if the transfer was successful
+            if success:
+                print(f'{filename} received successfully.')
+                client_socket.sendall(b'1')  # Signal successful transfer to the client
+                return "226 File transferred successfully."
+            else:
+                client_socket.sendall(b'0')
+                return "550 Error in File transfer."
+    except Exception as e:
+        print(f"Error in STOR command: {e}")
+        client_socket.sendall(b'0')
+        return "550 Error in File transfer."
+
+
+
 def send_stream(file, data_conn):
     try:
         while True:
@@ -88,118 +179,42 @@ def send_compressed(file, data_conn):
         print(f"Error sending compressed data: {e}")
         return False
 
-def handle_stor(filename, pasv_socket, client_socket):
+def handle_retr(filename, pasv_socket, client_socket):
     try:
-        data_conn, _ = pasv_socket.accept()  # Unpack the returned tuple
+        data_conn, _ = pasv_socket.accept()  # Accept the data connection
         # Check if transfer settings are all set
         if not all([transfer_type, transfer_mode, data_structure]):
             data_conn.close()
             client_socket.sendall(b'0')
             return "503 Bad sequence of commands. Set TYPE, MODE, and STRU before transfer."
-        client_socket.sendall(b'1')
-        with open(filename, 'rb') as file:
-            if transfer_type == "stream":
-                if transfer_mode == "binary":
-                    success = receive_stream(file, data_conn)
+
+        filepath = os.path.join(os.getcwd(), filename)
+        if os.path.exists(filepath):
+            client_socket.sendall(b'1')  # Signal client that file transfer will start
+            with open(filepath, 'rb') as file:
+                if transfer_type == "stream":
+                    success = send_stream(file, data_conn)
+                elif transfer_type == "block":
+                    success = send_block(file, data_conn)
+                elif transfer_type == "compressed":
+                    success = send_compressed(file, data_conn)
                 else:
-                    success = False  # Unsupported transfer mode
-            elif transfer_type == "block":
-                if transfer_mode == "binary":
-                    success = receive_block(file, data_conn)
-                else:
-                    success = False  # Unsupported transfer mode
-            elif transfer_type == "compressed":
-                if transfer_mode == "binary":
-                    success = receive_compressed(file, data_conn)
-                else:
-                    success = False  # Unsupported transfer mode
-            else:
-                success = False  # Unsupported transfer type
+                    success = False  # Unsupported transfer type
             if success:
                 print(f'{filename} sent successfully.')
-                return "226 File transferred successfully."
+                return "226 File sent successfully"
             else:
                 client_socket.sendall(b'0')
                 return "550 Error in File transfer."
-    except Exception as e:
-        print(f"Error in STOR command. {e}")
-        client_socket.sendall(b'0')
-        return "550 Error in File transfer."
-
-def receive_stream(file, data_conn):
-    try:
-        while True:
-            data = data_conn.recv(1024)
-            if not data:
-                break
-            file.write(data)
-        return True
-    except Exception as e:
-        print(f"Error receiving data: {e}")
-        return False
-
-def receive_block(file, data_conn):
-    try:
-        block_size = 1024  # Define your block size
-        while True:
-            data = data_conn.recv(block_size)
-            if not data:
-                break
-            file.write(data)
-            data_conn.sendall(b'1')  # Acknowledge block received
-        return True
-    except Exception as e:
-        print(f"Error receiving block: {e}")
-        return False
-
-def receive_compressed(file, data_conn):
-    try:
-        import zlib
-        decompressor = zlib.decompressobj()
-        while True:
-            compressed_data = data_conn.recv(1024)
-            if not compressed_data:
-                break
-            data = decompressor.decompress(compressed_data)
-            if data:
-                file.write(data)
-        file.write(decompressor.flush())
-        return True
-    except Exception as e:
-        print(f"Error receiving compressed data: {e}")
-        return False
-
-
-def handle_retr(filename, pasv_socket, client_socket):
-    try:
-        data_conn = pasv_socket.accept()
-        # Check if transfer settings are all set
-        if not all([transfer_type, transfer_mode, data_structure]):
-            data_conn.close()
-            client_socket.sendall()
-            return "503 Bad sequence of commands. Set TYPE, MODE, and STRU before transfer."
-
-        client_socket.sendall(b'1')  # Signal client that file transfer will start
-        if transfer_type == "stream":
-            success = send_stream(open(filename, 'rb'), data_conn)
-        elif transfer_type == "block":
-            success = send_block(open(filename, 'rb'), data_conn)
-        elif transfer_type == "compressed":
-            success = send_compressed(open(filename, 'rb'), data_conn)
         else:
-            data_conn.close()
-            client_socket.sendall(b'0')
-            return "504 Unsupported transfer type."
-        if success:
-            print(f'{filename} received successfully.')
-            return "226 File received successfully."
-        else:
-            client_socket.sendall(b'0')
-            return "550 Error in File transfer."
+            client_socket.sendall(b'0')  # Signal client that file transfer will not start
+            print(f'{filename} does not exist.')
+            return "550 File not found."
     except Exception as e:
-        client_socket.sendall(b'0')
         print(f"Error in RETR command. {e}")
+        client_socket.sendall(b'0')
         return "550 Error in File transfer."
+
 
 def handle_client_connection(connection):
     """
